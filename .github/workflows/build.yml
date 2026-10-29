@@ -1,0 +1,55 @@
+name: build-docs-index
+# Dựng lại chỉ mục tài liệu mỗi thứ Hai, kiểm tra, rồi phát hành docs.sqlite + manifest.json.
+# Node 6 trên Botkeep đọc releases/latest/download/manifest.json và tự đổi sang bản mới.
+on:
+  schedule:
+    - cron: '0 20 * * 0'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Test
+        run: npm test
+      - name: Dung index
+        run: mkdir -p dist && node --max-old-space-size=8192 scripts/build-index.mjs --out=dist/docs.sqlite
+      - name: Kiem tra va tao manifest
+        id: m
+        run: |
+          node -e '
+            const { DocsStore } = require("./lib/store");
+            const s = new DocsStore("dist/docs.sqlite");
+            const libs = s.listLibraries();
+            const empty = libs.filter(l => s.overview(l.library, 1).length === 0).map(l => l.library);
+            if (libs.length < 10 || empty.length) { console.error("index loi:", libs.length, empty); process.exit(1); }
+            console.log(libs.map(l => `${l.library} ${l.version || "-"} ${l.chunkCount}`).join("\n"));
+            require("fs").writeFileSync("dist/built_at", s.globalBuiltAt);
+          '
+          tag="index-$(date -u +%Y%m%d-%H%M)"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          node -e '
+            const fs = require("fs"), crypto = require("crypto");
+            const buf = fs.readFileSync("dist/docs.sqlite");
+            fs.writeFileSync("dist/manifest.json", JSON.stringify({
+              builtAt: fs.readFileSync("dist/built_at", "utf8"),
+              url: `https://github.com/${process.env.GITHUB_REPOSITORY}/releases/download/${process.argv[1]}/docs.sqlite`,
+              sha256: crypto.createHash("sha256").update(buf).digest("hex"),
+              size: buf.length,
+            }, null, 2));
+          ' "$tag"
+          cat dist/manifest.json
+      - name: Phat hanh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ steps.m.outputs.tag }}" dist/docs.sqlite dist/manifest.json --title "${{ steps.m.outputs.tag }}" --notes "Chi muc tai lieu tu dong"
+          gh release list --limit 100 --json tagName --jq '.[3:][].tagName' | while read -r t; do gh release delete "$t" --cleanup-tag --yes; done

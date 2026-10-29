@@ -1,0 +1,15 @@
+{
+  "name": "botkeep-node6-docs-index",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Self-hosted official-docs search (SQLite FTS5) for the Botkeep cluster",
+  "main": "server.js",
+  "engines": {
+    "node": ">=22.5.0"
+  },
+  "scripts": {
+    "start": "node --env-file=.env server.js",
+    "build-index": "node --max-old-space-size=6144 scripts/build-index.mjs",
+    "test": "node --test test/markdown.test.cjs test/query.test.cjs test/server.test.cjs test/updater.test.cjs"
+  }
+}
